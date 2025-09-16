@@ -1,6 +1,5 @@
-# frozen_string_literal: true
-
-$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
-require "joys"
-
-require "minitest/autorun"
+require 'minitest/autorun'
+require 'minitest/pride'
+require 'rainbow/ext/string'
+require 'cgi'
+require_relative '../lib/joys'
