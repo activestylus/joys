@@ -7,3 +7,7 @@
 ## [0.1.1] - 2025-09-16
 
 - Actual templating and CSS functionality added
+
+## [0.1.2] - 2025-09-16
+
+- Updated README

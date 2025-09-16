@@ -352,17 +352,19 @@ Using simple components and views (only 3 layers of nesting) we can see how Joy 
 
 #### ❄️ COLD RENDER (new object per call)
 |      | user   | system  | total | real.  |
+|------|--------|--------|--------|--------|
 |Joys: |0.060535|0.000200|0.060735|0.060736|
 |Slim: |0.048344|0.000183|0.048527|0.048530|
 |ERB:  |0.301811|0.000808|0.302619|0.302625|
 |Phlex:|0.069636|0.000470|0.070106|0.071157|
 
 #### 🔥 HOT RENDER (cached objects)
-|       | user   | system  | total  | real   |
-|Joys:  |0.065255| 0.000257|0.065512|0.065512|
-|Slim:  |0.049323| 0.000295|0.049618|0.049695|
-|ERB:   |0.309757| 0.001167|0.310924|0.310929|
-|Phlex: |0.069663| 0.000141|0.069804|0.069805|
+|      | user   | system  | total  | real   |
+|------|--------|---------|--------|--------|
+|Joys: |0.065255| 0.000257|0.065512|0.065512|
+|Slim: |0.049323| 0.000295|0.049618|0.049695|
+|ERB:  |0.309757| 0.001167|0.310924|0.310929|
+|Phlex:|0.069663| 0.000141|0.069804|0.069805|
 
 #### 💾 MEMORY USAGE
 Joys memory: 532356 bytes
@@ -387,17 +389,19 @@ As template complexity grows, Joys starts to really show off its optimizations. 
 
 This is the bare bones benchmark, no "cheating" allowed.
 
-|            | user   | system | total  | real   |
-| Joys (cold)|0.051715|0.000364|0.052079|0.052080|
-| ERB  (cold)|0.520495|0.003696|0.524191|0.524187|
-| Slim (cold)|6.001650|0.019418|6.021068|6.021013|
-| Phlex(cold)|0.169567|0.000373|0.169940|0.169938|
+|      | user   | system | total  | real   |
+|------|--------|--------|--------|--------|
+| Joys |0.051715|0.000364|0.052079|0.052080|
+| ERB  |0.520495|0.003696|0.524191|0.524187|
+| Slim |6.001650|0.019418|6.021068|6.021013|
+| Phlex|0.169567|0.000373|0.169940|0.169938|
 
 Note: Joys achieves its 'cold render' speed by eliminating object overhead and using simple string operations with smart memory management.
 
 ### 🔥 HOT RENDER (cached objects)
 
 |      | user    | system | total   | real   |
+|------|---------|--------|---------|--------|
 |JOYS: | 0.000463|0.000010| 0.000473|0.000473|
 |SLIM: | 0.045881|0.000358| 0.046239|0.046243|
 |PHLEX:| 0.167631|0.000760| 0.168391|0.168661|
