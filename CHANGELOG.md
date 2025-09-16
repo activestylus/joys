@@ -11,3 +11,4 @@
 ## [0.1.2] - 2025-09-16
 
 - Updated README
+- Added main joys.rb
