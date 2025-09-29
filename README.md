@@ -974,7 +974,7 @@ div?("# Welcome to Joys")
 p?("This is **bold** and *italic* text")
 # => <p>This is <strong>bold</strong> and <em>italic</em> text</p>
 
-article? do
+article do
   h2?("## Getting Started")
   p?("Learn how to use the `tag?` methods")
 end
@@ -1057,7 +1057,7 @@ div!("<h1>Raw HTML</h1>")
 # => <div><h1>Raw HTML</h1></div>
 
 # Markup processing (recommended)
-div?("## This becomes H1")
+div?("# This becomes H1")
 # => <div><h1>This becomes H1</h1></div>
 ```
 
