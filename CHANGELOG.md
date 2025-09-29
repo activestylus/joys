@@ -12,3 +12,11 @@
 
 - Updated README
 - Added main joys.rb
+
+
+## [0.1.3] - 2025-09-29
+
+- Added configurable markup parser
+- Added Static Site Generator
+- Added Static Data Layer
+- Added CLI Utility
