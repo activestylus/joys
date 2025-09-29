@@ -1,4 +1,5 @@
 # lib/joys/tags.rb
+require_relative "hugdown"
 module Joys
   module Tags
     VOID_TAGS = %w[area base br col embed hr img input link meta param source track wbr].freeze
@@ -111,9 +112,12 @@ module Joys
         @bf << GTS << tag << BC
         nil
       end
-      
       define_method("#{tag}!") do |content = nil, cs: nil, **attrs, &block|
         send(tag, content, cs: cs, raw: true, **attrs, &block)
+      end
+      define_method("#{tag}?") do |content = nil, cs: nil, **attrs, &block|
+        parsed_content = Joys::Config.markup_parser.call(content.to_s)
+        send(tag, parsed_content, cs: cs, raw: true, **attrs, &block)
       end
     end
   end

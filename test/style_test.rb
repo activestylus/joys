@@ -195,8 +195,6 @@ class JoysStyleTest < Minitest::Test
     
     refute_nil media_queries, "Media queries should exist"
     
-    puts "DEBUG: Media queries keys: #{media_queries.keys.inspect}" if media_queries
-    
     assert media_queries.key?('m-min-768'), "Should have min-width query"
     assert media_queries.key?('m-max-1024'), "Should have max-width query"
     assert media_queries.key?('m-minmax-480-768'), "Should have minmax query"
@@ -214,8 +212,6 @@ class JoysStyleTest < Minitest::Test
     compiled = Joys.compiled_styles['comp_test_component']
     queries = compiled[:media_queries]
     
-    puts "DEBUG: Container queries keys: #{queries.keys.inspect}" if queries
-    
     assert queries.key?('c-min-300'), "Should have container min query"
     assert queries.key?('c-max-600'), "Should have container max query" 
     assert queries.key?('c-minmax-400-800'), "Should have container minmax query"
@@ -232,8 +228,6 @@ class JoysStyleTest < Minitest::Test
     
     compiled = Joys.compiled_styles['comp_test_component']
     queries = compiled[:media_queries]
-    
-    puts "DEBUG: Named container queries keys: #{queries.keys.inspect}" if queries
     
     assert queries.key?('c-sidebar-min-250'), "Should have named container min"
     assert queries.key?('c-main-max-1200'), "Should have named container max"
@@ -312,8 +306,6 @@ class JoysStyleTest < Minitest::Test
     # Test consolidated output
     consolidated = Joys::Styles.send(:render_consolidated_styles, components)
     
-    puts "DEBUG: Consolidated CSS: #{consolidated.inspect}"
-    
     refute_nil consolidated, "Should generate consolidated CSS"
     assert_includes consolidated, "comp_a", "Should include first component"
     assert_includes consolidated, "@media", "Should include media queries"
@@ -360,8 +352,6 @@ class JoysStyleTest < Minitest::Test
     end
     
     consolidated = Joys::Styles.send(:render_consolidated_styles, ['comp_test_component'])
-    
-    puts "DEBUG: CSS output format test - consolidated: #{consolidated.inspect}"
     
     # Check base CSS
     assert_includes consolidated, ".base { color: red; }", "Should include base CSS"

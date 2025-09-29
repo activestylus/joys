@@ -4,18 +4,27 @@ module Joys
   @css_path = "public/css";@cache={};@templates={};@compiled_styles={};@consolidated_cache={};@current_component = nil;@layouts={}
   class << self
     attr_reader :cache, :templates, :compiled_styles, :consolidated_cache, :layouts
-    attr_accessor :current_component, :current_page, :css_path
+    attr_accessor :current_component, :current_page, :css_path,:adapter,:css_registry
+    # def load_css_parts
+    #   return unless Dir.exist?(Config.css_parts)
+    #   Dir.glob("#{Config.css_parts}/**/*.css").each do |f|
+    #     relative_path = f.sub("#{Config.css_parts}/", '').sub('.css', '')
+    #     @css_registry[relative_path] = File.read(f).gsub(/\r?\n/, "")
+    #   end
+    # end
   end
+  def self.make(name, *args, **kwargs, &block)
+    Joys.define :comp, name, *args, **kwargs, &block
+  end  
   def self.reset!
-  @cache.clear
-  @templates.clear
-  @compiled_styles.clear
-  @consolidated_cache.clear
-  @layouts.clear
-  @current_component = nil
-  @current_page = nil
-end
-
+    @cache.clear
+    @templates.clear
+    @compiled_styles.clear
+    @consolidated_cache.clear
+    @layouts.clear
+    @current_component = nil
+    @current_page = nil
+  end
   def self.cache(cache_id, *args, &block);cache_key = [cache_id, args.hash];@cache[cache_key] ||= block.call;end
   def self.define(type, name, &template)
     full_name = "#{type}_#{name}";@templates[full_name] = template
@@ -52,7 +61,8 @@ end
         old_component = @current_component
         @current_component = full_name if type == :comp
         result = cache(full_name, *args) do
-          Joys::Render.compile { instance_exec(*args, &template) }
+          # This call now returns a hash, and the hash will be cached.
+          Joys::Render.compile(full_name) { instance_exec(*args, &template) }
         end
         @current_component = old_component
         result
@@ -85,47 +95,65 @@ end
     @current_page = old_page
     renderer.instance_variable_get(:@bf).freeze
   end
-def self.comp(name, *args, **locals, &block)
-  renderer = Object.new
-  renderer.extend(Render::Helpers)
-  renderer.extend(Tags)
-  locals.each { |k, v| renderer.instance_variable_set("@#{k}", v) }
-  renderer.instance_eval do
-    @bf = String.new(capacity: 8192)
-    @slots = {}
-    @used_components = Set.new
-  end
-  
-  comp_template = @templates["comp_#{name}"]
-  raise "No comp template defined for #{name}" unless comp_template
-  
-  old_component = @current_component
-  @current_component = "comp_#{name}"
-  
-  # Pass the block as a regular argument to the template
-  renderer.instance_exec(*args, block, &comp_template)
-  
-  @current_component = old_component
-  renderer.instance_variable_get(:@bf).freeze
-end
-  def self.html(&block)
+  def self.comp(name, *args, **locals, &block)
     renderer = Object.new
     renderer.extend(Render::Helpers)
     renderer.extend(Tags)
-    renderer.instance_variable_set(:@bf, String.new)
+    locals.each { |k, v| renderer.instance_variable_set("@#{k}", v) }
+    renderer.instance_eval do
+      @bf = String.new(capacity: 8192)
+      @slots = {}
+      @used_components = Set.new
+    end
     
-    # Only inherit page context for style compilation
-    renderer.instance_variable_set(:@current_page, current_page) if current_page
+    comp_template = @templates["comp_#{name}"]
+    raise "No comp template defined for #{name}" unless comp_template
     
-    renderer.instance_eval(&block)
-    renderer.instance_variable_get(:@bf)
+    old_component = @current_component
+    @current_component = "comp_#{name}"
+    
+    # Pass the block as a regular argument to the template
+    renderer.instance_exec(*args, block, &comp_template)
+    
+    @current_component = old_component
+    renderer.instance_variable_get(:@bf).freeze
   end
+def self.html(&block)
+  # Clear any previous tracking
+  clear_tracked_components
+  
+  renderer = Object.new
+  renderer.extend(Render::Helpers)
+  renderer.extend(Tags)
+  renderer.instance_variable_set(:@bf, String.new)
+  renderer.instance_variable_set(:@current_page, "page_standalone")
+  renderer.instance_variable_set(:@used_components, Set.new)
+  renderer.instance_variable_set(:@slots, {})
+  
+  renderer.instance_eval(&block)
+  
+  # Merge globally tracked components
+  tracked = get_tracked_components
+  used = renderer.instance_variable_get(:@used_components)
+  used.merge(tracked) if tracked
+  
+  # Clear tracking after use
+  clear_tracked_components
+  
+  renderer.instance_variable_get(:@bf)
+end
   module Render
-    def self.compile(&block)
-      context = Object.new;context.extend(Helpers);context.extend(Tags)
-      context.instance_eval { @bf = String.new(capacity: 8192);@slots={};@used_components = Set.new}
+    def self.compile(context_name = nil, &block)
+      context = Object.new; context.extend(Helpers); context.extend(Tags)
+      context.instance_eval { @bf = String.new(capacity: 8192); @slots={}; @used_components = Set.new }
+      context.instance_variable_set(:@current_page, context_name) if context_name
       context.instance_eval(&block)
-      context.instance_variable_get(:@bf).freeze
+      
+      # CHANGE: Return a hash containing both html and the used components set
+      {
+        html: context.instance_variable_get(:@bf).freeze,
+        components: context.instance_variable_get(:@used_components)
+      }
     end
     def self.layout(&layout_block)
       template = Object.new;template.extend(Helpers);template.extend(Tags)

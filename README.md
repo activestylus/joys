@@ -49,6 +49,9 @@ p { txt user_input }  # "<script>alert('xss')</script>" becomes safe text
 # raw outputs HTML (use with caution)
 div { raw markdown_to_html(content) }
 
+# raw shortcut is available for those who find it tedious
+div { _ markdown_to_html(content) }
+
 # Pass raw: true to any tag
 div(content, raw: true)  # content renders as HTML
 ```
@@ -759,130 +762,358 @@ Joys is designed to stay out of your way. At its core, it leans functional — y
 The DSL is the same either way — Joys just adapts.
 
 
-```ruby
-class BaseLayout
-  include Joys::Helpers
+---
 
-  def render(&block)
-    html {
-      head { title("My App") }
-      body { block.call }
-    }
+# Joys Rails Integration
+
+## Installation
+
+Add to your Rails app's initializer:
+
+```ruby
+require 'joys'
+```
+
+Auto-detects Rails and configures integration automatically.
+
+## How It Works
+
+- **Framework Detection**: Checks for `ActionController::Base` and `Rails` 
+- **Helper Injection**: Adds all `ActionView::Helpers` to `Joys::Render::Helpers`
+- **Context Injection**: Provides `request`, `params`, `current_user`, `session` in templates
+- **Controller Integration**: Adds `render_joy` method to all controllers
+
+## Directory Structure
+
+```
+app/views/joys/
+├── layouts/          # Auto-loaded at boot (production)
+├── components/       # Auto-loaded at boot (production) 
+└── pages/           # Loaded on-demand
+```
+
+## Configuration
+
+```ruby
+# Optional - defaults shown
+Joys::Config.env = "development"  # or Rails.env
+Joys::Config.pages = "app/views/joys/pages"
+Joys::Config.layouts = "app/views/joys/layouts"  
+Joys::Config.components = "app/views/joys/components"
+```
+
+## Controller Usage
+
+```ruby
+class HomeController < ApplicationController
+  def index
+    render_joy :index  # loads app/views/joys/pages/index.rb
+  end
+  
+  def show
+    render_joy "users/show", user: User.find(params[:id])
   end
 end
+```
 
-class Dashboard < BaseLayout
+## Page Templates
+
+### Functional Pattern
+
+```ruby
+# app/views/joys/pages/index.rb
+data = {title: "Home", nav: link_to("About", "/about")}.freeze
+
+Joys.html {
+  layout(:main) {
+    push(:title) { txt data[:title] }
+    push(:body) { _ data[:nav] }
+  }
+}
+```
+
+### Class Pattern
+
+```ruby
+# app/views/joys/pages/index.rb
+class IndexPage
+  def initialize
+    @data = {title: "Home"}.freeze
+  end
+  
   def render
-    super {
-      div(cs: "dashboard") {
-        h1("Dashboard")
-        p("Rendered through OOP inheritance.")
-        a("Logout", cs:"btn",href:"/logout")
+    data = @data
+    Joys.html {
+      layout(:main) {
+        push(:title) { txt data[:title] }
+        push(:body) { _ link_to("About", "/about") }
       }
     }
   end
 end
 
-puts Dashboard.new.render
-# => <html><head><title>My App</title></head><body><div class="dashboard"><h1>Dashboard</h1><p>Rendered through OOP inheritance.</p><a class="btn" href="/logout">Logout</a></div></body></html>
+IndexPage.new.render
 ```
 
-You can pick the style that fits your project, or even mix them.
+## Rails Helpers
+
+All Rails helpers available directly:
+
+```ruby
+Joys.html {
+  layout(:main) {
+    push(:body) {
+      _ link_to("Home", root_path)
+      _ image_tag("logo.png", class: "w-8")
+      _ form_with model: Post.new do |f|
+        f.text_field :title
+      end
+    }
+  }
+}
+```
+
+## Context Access
+
+```ruby
+# Available in all templates
+request.referer
+params[:id] 
+current_user.name
+session[:user_id]
+```
+
+## Components
+
+```ruby
+# app/views/joys/components/card.rb
+Joys.define :comp, :card do |title|
+  styles { css ".card {padding:1rem;border:1px solid #ddd}" }
+  div(cs: "card") { h3 title }
+end
+
+# Usage in templates
+comp :card, "Hello World"
+```
+
+## Page Components
+
+For page-specific components:
+
+```ruby
+page_comp(:hero) {
+  styles { css ".hero {text-align:center}" }
+  section(cs: "hero") { h1 "Welcome" }
+}
+```
+
+## Layouts
+
+```ruby
+# app/views/joys/layouts/main.rb
+Joys.define :layout, :main do
+  html {
+    head { 
+      title { pull(:title) }
+      pull_styles  # Auto-compiled CSS
+    }
+    body { pull(:body) }
+  }
+end
+```
+
+## Raw HTML
+
+Use `_` for unescaped HTML:
+
+```ruby
+div {
+  _ "<strong>Bold</strong>"
+  _ link_to("Link", "/")
+  txt "Escaped text"  # Auto-escaped
+}
+```
+
+## Data Passing
+
+```ruby
+# Controller
+render_joy :show, user: current_user, posts: @posts
+
+# Template  
+user_name = @user.name
+post_count = @posts.count
+
+Joys.html {
+  layout(:main) {
+    push(:body) { h1 "Hello #{user_name}" }
+  }
+}
+```
+
+## Environment Behavior
+
+- **Development**: Templates reload on every request
+- **Production**: Layouts/components preloaded at boot, pages cached after first render
 
 ---
-## 🧩 Bespoke Page Architecture: Content-Driven Flexibility
 
-**Perfect for landing pages, marketing campaigns, and any layout requiring easy reorganization.**
+## Markup Processing in Joys
 
-Modular Page Architecture lets you build pages as Ruby modules with clean data separation, allowing rapid section reorganization without touching template code.
+Joys includes a powerful shorthand for processing markup content directly within your templates using the `?` suffix on any tag method.
 
-### The Pattern: Data + Methods + Flexible Assembly
+### Basic Usage
+
+Any tag method can be followed by `?` to process its content through a markup parser:
 
 ```ruby
-# pages/product_launch.rb
-module ProductLaunch
-  DATA = {
-    hero: {
-      title: "Revolutionary SaaS Platform", 
-      cta: "Start Free Trial"
-    },
-    features: {
-      items: [
-        { title: "Lightning Fast", desc: "10x faster" },
-        { title: "Secure", desc: "Bank-level security" }
-      ]
-    }
-  }.freeze
+# Process content with your configured markup parser
+div?("# Welcome to Joys") 
+# => <div><h1>Welcome to Joys</h1></div>
 
-  def self.render
-    Joys.define(:page, :product_launch) do
-      layout(:main) {
-        push(:main) {
-          raw hero(DATA[:hero])
-          raw features(DATA[:features])
-          
-          # Custom sections between data-driven ones
-          div(cs: "demo") {
-            h2("See It In Action")
-            comp(:demo_video)
-          }
-          
-          comp(:testimonials) # Reusable global component
-        }
-      }
-    end
-  end
+p?("This is **bold** and *italic* text")
+# => <p>This is <strong>bold</strong> and <em>italic</em> text</p>
 
-  private
+article? do
+  h2?("## Getting Started")
+  p?("Learn how to use the `tag?` methods")
+end
+```
 
-  def self.hero(data)
-    Joys.html {
-      styles { css ".hero { background: #667eea; padding: 4rem; }" }
-      # All css rendered and deduplicated within page scope
-      section(cs: "hero") {
-        h1(data[:title])
-        a(data[:cta], href: "/signup", cs: "btn")
-      }
-    }
-  end
+### Configuration
 
-  def self.features(data)
-    Joys.html {
-      section(cs: "features") {
-        data[:items].each { |item|
-          div {
-            h3(item[:title])
-            p(item[:desc])
-          }
-        }
-      }
-    }
+Configure your preferred markup parser globally:
+
+```ruby
+# Using Kramdown
+Joys::Config.markup_parser = ->(content) { 
+  Kramdown::Document.new(content).to_html 
+}
+
+# Using CommonMarker
+Joys::Config.markup_parser = ->(content) {
+  CommonMarker.render_html(content)
+}
+
+# Using any custom parser
+Joys::Config.markup_parser = ->(content) {
+  MyCustomParser.process(content)
+}
+```
+
+### 🎯 Recommended: Sparx Parser
+
+For the best developer experience, we recommend **[Sparx](https://github.com/activestylus/sparx)** - a modern markup language designed specifically for the Joys ecosystem:
+
+```ruby
+# Install: gem install sparx
+Joys::Config.markup_parser = ->(content) { 
+  Sparx.parse(content) 
+}
+```
+
+#### Why Sparx?
+
+Sparx eliminates the frustrations of traditional Markdown with:
+
+- **Consistent syntax** - No more `**bold**` vs `__bold__` confusion
+- **Perfect nesting** - Formatting works reliably in complex content
+- **Semantic HTML** - Clean, accessible output throughout
+- **URL references** - Define URLs once, use them everywhere
+- **Responsive images** - Built-in support for modern image requirements
+- **Academic citations** - Proper citation handling out of the box
+
+#### Sparx Examples
+
+```ruby
+# Clean, consistent formatting
+div? do
+  p?("*[Bold] and /[italic] with perfect */[nesting]https://example.com")
+  # => <p><strong>Bold</strong> and <em>italic</em> with perfect <strong><em><a href="https://example.com">nesting</a></em></strong></p>
+end
+
+# Responsive images with art direction
+div? do
+  p?("i[Hero]@cdn/hero.jpg 400w|hero@2x.jpg 800w")
+  # => Generates full <picture> element with responsive sources
+end
+
+# Complex content with semantic structure
+article? do
+  p?("+[Technical Details]{:Performance:100x faster parsing:Output:Semantic HTML5}")
+  # => Creates <details> with definition list inside
+end
+```
+
+### Comparison with Other Methods
+
+```ruby
+# Raw text (no processing)
+div("## This won't parse")
+# => <div>## This won't parse</div>
+
+# Raw HTML (dangerous with user content)
+div!("<h1>Raw HTML</h1>") 
+# => <div><h1>Raw HTML</h1></div>
+
+# Markup processing (recommended)
+div?("## This becomes H1")
+# => <div><h1>This becomes H1</h1></div>
+```
+
+### Advanced Usage
+
+#### Inline with Other Tags
+
+```ruby
+div(cs: "content") do
+  h1?("# Article Title")
+  div?(css: "prose") do
+    p?("First paragraph with *[bold] text")
+    blockquote?("> Important quote here")
+    ul?("- Item one\n- Item two\n- Item three")
   end
 end
 ```
 
-### Why This Pattern Works
+#### With Component Composition
 
-**📊 Content Management Made Simple**
-- All page content in one DATA hash
-- Easy updates without touching templates
+```ruby
+Joys.register(:comp, :blog_post) do |title:, content:|
+  article do
+    header do
+      h1(title)
+      time(Time.now.iso8601)
+    end
+    div?(cs: "content") { raw content }
+  end
+end
 
-**🎯 Effortless Reorganization**  
-- Move sections by reordering method calls
-- Client requests become 30-second changes
+# Usage with Sparx content
+Joys.comp(:blog_post, 
+  title: "My Article",
+  content: Sparx.parse("## Introduction\n\nThis is the *[content]")
+)
+```
 
-**🧩 Best of All Worlds**
-- Data-driven sections for consistency
-- Custom HTML where needed  
-- Reusable global components
-- Page-specific anonymous components
+### Performance Notes
 
-**⚡ Performance Benefits**
-- No global registry pollution
-- Page-scoped CSS compilation
-- Leverages existing Joys optimizations
+- Markup parsing happens at **render time**, not registration time
+- Processing is **cached** along with the rest of your template
+- For maximum performance with user-generated content, consider pre-processing markup outside the template
 
-This pattern transforms tedious page layout management into an agile, data-driven workflow that scales beautifully.
+### Security
+
+When processing user-generated content, ensure your markup parser is configured for safe mode:
+
+```ruby
+# With Sparx safe mode
+Joys::Config.markup_parser = ->(content) { 
+  Sparx.parse(content, safe: true) 
+}
+```
+
+The `?` suffix provides a clean, consistent way to integrate markup processing into your Joys templates while maintaining the framework's exceptional performance characteristics.
 
 ---
 

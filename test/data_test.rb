@@ -1,6 +1,6 @@
 require 'minitest/autorun'
 require 'minitest/pride'
-require_relative '../lib/joys/hash'  # Keep original path until file is renamed
+require_relative '../lib/joys/data'
 require 'date'
 require 'tmpdir'  # For temporary file tests
 require 'fileutils'

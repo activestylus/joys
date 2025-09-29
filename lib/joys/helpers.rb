@@ -5,6 +5,7 @@ module Joys
     module Helpers
       def txt(content); @bf << CGI.escapeHTML(content.to_s); nil; end
       def raw(content); @bf << content.to_s; nil; end
+      def _(content); @bf << content.to_s; nil; end
       def push(name, &block)
         old_buffer = @bf;@slots ||= {}
         @bf = String.new;instance_eval(&block)
@@ -14,15 +15,26 @@ module Joys
       def pull(name = :main)
         @slots ||= {};@bf << @slots[name].to_s if @slots[name];nil
       end
-      def pull_styles;@bf << "<!--STYLES-->";nil;end
+      def pull_styles
+        @bf << "<!--STYLES-->"
+        nil
+      end
       def pull_external_styles;@bf << "<!--EXTERNAL_STYLES-->";nil;end
 
-def comp(name, *args, **kwargs, &block)
-  comp_name = "comp_#{name}"
-  @used_components ||= Set.new
-  @used_components.add(comp_name)
-  raw Joys.send(comp_name, *args, **kwargs, &block)
-end
+      def comp(name, *args, **kwargs, &block)
+        comp_name = "comp_#{name}"
+        @used_components ||= Set.new
+        @used_components.add(comp_name) # 1. Register the component being called.
+
+        # 2. Call the component's render method. This now returns our hash.
+        result = Joys.send(comp_name, *args, **kwargs, &block)
+        
+        # 3. CRITICAL FIX: Merge the nested dependencies from the result into the current context.
+        @used_components.merge(result[:components]) if result[:components]
+
+        # 4. Render only the HTML part into the buffer.
+        raw result[:html]
+      end
       def layout(name, &block)
         layout_lambda = Joys.layouts[name]
         raise ArgumentError, "Layout `#{name}` not registered" unless layout_lambda
@@ -32,25 +44,35 @@ end
         context_name = Joys.current_component
         context_name ||= Joys.current_page
         context_name ||= @current_page
+        
         return nil unless context_name
-        return nil if Joys.compiled_styles[context_name]
+        return nil if Joys.compiled_styles[context_name] && !Joys::Config.dev?  # Check dev mode
+        
         @style_base_css = []
         @style_media_queries = {}
         @style_scoped = scoped
         instance_eval(&block)
+        
         Joys::Styles.compile_component_styles(
           context_name,
           @style_base_css,
           @style_media_queries,
           @style_scoped
         )
-        if context_name&.start_with?('page_')
+        
+        if context_name&.start_with?('page_') || context_name&.start_with?('comp_')
           @used_components ||= Set.new
           @used_components.add(context_name)
         end
         @style_base_css = @style_media_queries = @style_scoped = nil;nil
       end
       def doctype;raw  "<!doctype html>";end
+      def load_css(*args)
+        args.map do |name|
+          @style_base_css&.push(Joys.css_registry[name]||raise("CSS part not found: #{name}"))
+        end
+        nil
+      end
       def css(content);@style_base_css&.push(content);nil;end
       def media_max(breakpoint, content)
         return nil unless @style_media_queries
@@ -106,6 +128,11 @@ end
         @style_media_queries[key] ||= []
         @style_media_queries[key] << content;nil
       end
+def cycle(i, *choices)
+  choices[i % choices.length]
+end
+
+
     end
   end
 end

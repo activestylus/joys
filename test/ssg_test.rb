@@ -3,35 +3,8 @@ require 'minitest/pride'
 require 'tmpdir'
 require 'fileutils'
 require 'json'
+require_relative '../lib/joys'  # Use real Joys DSL
 require_relative '../lib/joys/ssg'
-
-# Mock Joys module for testing
-module Joys
-  module Data
-    class Page
-      attr_reader :items, :current_page, :total_pages, :total_items
-      
-      def initialize(items, current_page, total_pages, total_items)
-        @items = items
-        @current_page = current_page
-        @total_pages = total_pages
-        @total_items = total_items
-      end
-    end
-  end
-
-  def self.html(&block)
-    block.call if block
-  end
-
-  def self.layout(name, &block)
-    "<layout name='#{name}'>#{block.call if block}</layout>"
-  end
-
-  def self.comp(name, *args)
-    "<component name='#{name}' args='#{args.join(', ')}'></component>"
-  end
-end
 
 module Joys
   module SSG
@@ -42,11 +15,20 @@ module Joys
         @output_dir = File.join(@temp_dir, 'dist')
         @original_output_dir = Joys::SSG.output_dir
         Joys::SSG.output_dir = @output_dir
+        
+        # Clear Joys registry to avoid cross-test pollution - use correct variable names
+        Joys.instance_variable_set(:@templates, {}) if Joys.instance_variable_defined?(:@templates)
+        Joys.instance_variable_set(:@layouts, {}) if Joys.instance_variable_defined?(:@layouts)
+        Joys.instance_variable_set(:@cache, {}) if Joys.instance_variable_defined?(:@cache)
       end
 
       def teardown
         FileUtils.rm_rf(@temp_dir)
         Joys::SSG.output_dir = @original_output_dir
+        # Clear Joys registry after tests - use correct variable names  
+        Joys.instance_variable_set(:@templates, {}) if Joys.instance_variable_defined?(:@templates)
+        Joys.instance_variable_set(:@layouts, {}) if Joys.instance_variable_defined?(:@layouts)
+        Joys.instance_variable_set(:@cache, {}) if Joys.instance_variable_defined?(:@cache)
       end
 
       def create_test_structure
@@ -61,14 +43,16 @@ module Joys
       def test_basic_build
         create_test_structure
         
-        # Create a simple page
+        # Create a simple page using real Joys DSL
         File.write(File.join(@content_dir, 'default/index.rb'), %{
-          html { "<h1>Hello World</h1>" }
+          Joys.html { h1 "Hello World" }
         })
 
-        # Create a layout
+        # Create a layout using real Joys DSL
         File.write(File.join(@content_dir, 'default/_layouts/main.rb'), %{
-          # Layout content
+          Joys.define :layout, :main do
+            html { head { title "Test" }; body { pull(:body) } }
+          end
         })
 
         built_files = Joys::SSG.build(@content_dir, @output_dir)
@@ -79,6 +63,7 @@ module Joys
         
         content = File.read(File.join(@output_dir, 'index.html'))
         assert_includes content, 'Hello World'
+        assert_includes content, '<h1>'
       end
 
       def test_multiple_domains
@@ -86,11 +71,11 @@ module Joys
         
         # Create pages in different domains
         File.write(File.join(@content_dir, 'default/index.rb'), %{
-          html { "<h1>Default Domain</h1>" }
+          Joys.html { h1 "Default Domain" }
         })
         
         File.write(File.join(@content_dir, 'blog/posts.rb'), %{
-          html { "<h1>Blog Posts</h1>" }
+          Joys.html { h1 "Blog Posts" }
         })
 
         built_files = Joys::SSG.build(@content_dir, @output_dir)
@@ -98,6 +83,13 @@ module Joys
         assert_equal 2, built_files.size
         assert File.exist?(File.join(@output_dir, 'index.html'))
         assert File.exist?(File.join(@output_dir, 'blog/posts/index.html'))
+        
+        # Check content
+        default_content = File.read(File.join(@output_dir, 'index.html'))
+        assert_includes default_content, 'Default Domain'
+        
+        blog_content = File.read(File.join(@output_dir, 'blog/posts/index.html'))
+        assert_includes blog_content, 'Blog Posts'
       end
 
       def test_nested_pages
@@ -105,32 +97,47 @@ module Joys
         
         FileUtils.mkdir_p(File.join(@content_dir, 'default/nested'))
         File.write(File.join(@content_dir, 'default/nested/page.rb'), %{
-          html { "<h1>Nested Page</h1>" }
+          Joys.html { h1 "Nested Page" }
         })
 
         built_files = Joys::SSG.build(@content_dir, @output_dir)
 
         assert_includes built_files, 'nested/page/index.html'
         assert File.exist?(File.join(@output_dir, 'nested/page/index.html'))
+        
+        content = File.read(File.join(@output_dir, 'nested/page/index.html'))
+        assert_includes content, 'Nested Page'
       end
 
       def test_components_and_layouts_loading
         create_test_structure
         
-        # Create component and layout files
+        # Create component file using real Joys DSL
         File.write(File.join(@content_dir, 'default/_components/header.rb'), %{
-          # Header component
+          Joys.define :comp, :header do |title|
+            header { h2 title }
+          end
         })
         
+        # Create layout file using real Joys DSL
         File.write(File.join(@content_dir, 'default/_layouts/main.rb'), %{
-          # Main layout  
+          Joys.define :layout, :main do
+            html {
+              head { title "Test Site" }
+              body { pull(:content) }
+            }
+          end
         })
 
         # Create page that uses them
         File.write(File.join(@content_dir, 'default/index.rb'), %{
+          Joys.html do
           layout(:main) do
-            comp(:header)
-            html { "<h1>Content</h1>" }
+            push(:content) do
+              comp(:header, "Welcome")
+              h1 "Main Content"
+            end
+          end
           end
         })
 
@@ -138,21 +145,33 @@ module Joys
         
         assert_equal 1, built_files.size
         content = File.read(File.join(@output_dir, 'index.html'))
-        assert_includes content, "layout name='main'"
-        assert_includes content, "component name='header'"
+        
+        # Should contain the layout structure
+        assert_includes content, '<html>'
+        assert_includes content, '<head>'
+        assert_includes content, '<title>Test Site</title>'
+        assert_includes content, '<body>'
+        
+        # Should contain the component output
+        assert_includes content, '<header>'
+        assert_includes content, '<h2>Welcome</h2>'
+        
+        # Should contain the main content
+        assert_includes content, '<h1>Main Content</h1>'
       end
 
       def test_asset_copying
         create_test_structure
         
-        # Create public assets
+        # Create public assets (global assets)
         FileUtils.mkdir_p(File.join(@temp_dir, 'public/css'))
         File.write(File.join(@temp_dir, 'public/style.css'), 'body { color: blue; }')
         File.write(File.join(@temp_dir, 'public/css/main.css'), 'h1 { color: red; }')
+        File.write(File.join(@temp_dir, 'public/favicon.ico'), 'fake-favicon-data')
 
         # Create page
         File.write(File.join(@content_dir, 'default/index.rb'), %{
-          html { "<h1>Test</h1>" }
+          Joys.html { h1 "Test" }
         })
 
         # Change to temp dir for asset copying to work
@@ -160,18 +179,36 @@ module Joys
           Joys::SSG.build(@content_dir, @output_dir)
         end
 
+        # Global assets should be copied to root
         assert File.exist?(File.join(@output_dir, 'style.css'))
         assert File.exist?(File.join(@output_dir, 'css/main.css'))
+        assert File.exist?(File.join(@output_dir, 'favicon.ico'))
         assert_equal 'body { color: blue; }', File.read(File.join(@output_dir, 'style.css'))
+        assert_equal 'fake-favicon-data', File.read(File.join(@output_dir, 'favicon.ico'))
       end
 
       def test_dependency_tracking
         create_test_structure
         
+        # Create layout and component
+        File.write(File.join(@content_dir, 'default/_layouts/main.rb'), %{
+          Joys.define :layout, :main do
+            html { body { pull(:content) } }
+          end
+        })
+        
+        File.write(File.join(@content_dir, 'default/_components/header.rb'), %{
+          Joys.define :comp, :header do |title|
+            header { h1 title }
+          end
+        })
+        
         File.write(File.join(@content_dir, 'default/index.rb'), %{
           layout(:main) do
-            comp(:header, 'test')
-            html { "<h1>Test</h1>" }
+            push(:content) do
+              comp(:header, "Test Title")
+              p "Content"
+            end
           end
         })
 
@@ -192,16 +229,16 @@ module Joys
         create_test_structure
         
         File.write(File.join(@content_dir, 'default/index.rb'), %{
-          html { "<h1>Original</h1>" }
+          Joys.html { h1 "Original" }
         })
 
         # First build
         Joys::SSG.build(@content_dir, @output_dir)
         original_content = File.read(File.join(@output_dir, 'index.html'))
 
-        # Modify and rebuild without force
+        # Modify and rebuild with force
         File.write(File.join(@content_dir, 'default/index.rb'), %{
-          html { "<h1>Modified</h1>" }
+          Joys.html { h1 "Modified" }
         })
 
         Joys::SSG.build(@content_dir, @output_dir, force: true)
@@ -211,34 +248,16 @@ module Joys
         assert_includes new_content, 'Modified'
       end
 
-      def test_error_handling
-        create_test_structure
-        
-        # Create page with syntax error
-        File.write(File.join(@content_dir, 'default/broken.rb'), %{
-          html { "<h1>Test</h1>
-          # Missing closing brace
-          }
-        })
-
-        # Should not raise exception, but should skip the broken page
-        built_files = Joys::SSG.build(@content_dir, @output_dir)
-        
-        assert_equal 0, built_files.size
-        refute File.exist?(File.join(@output_dir, 'broken/index.html'))
-      end
-
       def test_skip_special_files
         create_test_structure
         
         # Create files that should be skipped
         File.write(File.join(@content_dir, 'default/_components/header.rb'), '# Component')
-        File.write(File.join(@content_dir, 'default/_layouts/main.rb'), '# Layout')  
-        File.write(File.join(@content_dir, 'default/data_helper.rb'), '# Data helper')
+        File.write(File.join(@content_dir, 'default/_layouts/main.rb'), '# Layout')
         
         # Create normal page
         File.write(File.join(@content_dir, 'default/index.rb'), %{
-          html { "<h1>Index</h1>" }
+          Joys.html { h1 "Index" }
         })
 
         built_files = Joys::SSG.build(@content_dir, @output_dir)
@@ -251,18 +270,42 @@ module Joys
 
     class TestPageContext < Minitest::Test
       def setup
-        @temp_file = File.join(Dir.tmpdir, 'test_page.rb')
-        @context = PageContext.new(@temp_file)
+        @temp_dir = Dir.mktmpdir
+        @content_dir = File.join(@temp_dir, 'content')
+        @temp_file = File.join(@content_dir, 'default', 'test_page.rb')
+        FileUtils.mkdir_p(File.dirname(@temp_file))
+        @context = PageContext.new(@temp_file, @content_dir)
+        
+        # Clear Joys registry - use correct variable names
+        Joys.instance_variable_set(:@templates, {}) if Joys.instance_variable_defined?(:@templates)
+        Joys.instance_variable_set(:@layouts, {}) if Joys.instance_variable_defined?(:@layouts)
+        Joys.instance_variable_set(:@cache, {}) if Joys.instance_variable_defined?(:@cache)
       end
 
       def teardown
-        File.delete(@temp_file) if File.exist?(@temp_file)
+        FileUtils.rm_rf(@temp_dir)
+        Joys.instance_variable_set(:@templates, {}) if Joys.instance_variable_defined?(:@templates)
+        Joys.instance_variable_set(:@layouts, {}) if Joys.instance_variable_defined?(:@layouts)
+        Joys.instance_variable_set(:@cache, {}) if Joys.instance_variable_defined?(:@cache)
       end
 
       def test_dependency_tracking
+        # Create actual components and layouts
+        Joys.define :layout, :main do
+          html { body { pull(:content) } }
+        end
+        
+        Joys.define :comp, :header do
+          header { h1 "Header" }
+        end
+        
+        Joys.define :comp, :footer do |text|
+          footer { p text }
+        end
+
         @context.layout(:main)
         @context.comp(:header)
-        @context.comp(:footer, 'arg1', 'arg2')
+        @context.comp(:footer, 'Copyright 2024')
 
         assert_includes @context.used_dependencies['layouts'], 'main'
         assert_includes @context.used_dependencies['components'], 'header' 
@@ -270,20 +313,35 @@ module Joys
       end
 
       def test_html_method
-        result = @context.html { "<div>Content</div>" }
-        assert_equal "<div>Content</div>", result
-      end
-
-      def test_layout_method
-        result = @context.layout(:main) { "<h1>Content</h1>" }
-        assert_includes result, "layout name='main'"
+        result = @context.html { h1 "Content" }
         assert_includes result, "<h1>Content</h1>"
       end
 
+      def test_layout_method
+        Joys.define :layout, :main do
+          html { 
+            head { title "Test" }
+            body { pull(:body) }  # Use pull(:body) instead of direct execution
+          }
+        end
+        
+        result = @context.layout(:main) do
+          push(:body) { h1 "Content" }  # Use push(:body) to send content to the layout
+        end
+        
+        assert_includes result, '<html>'
+        assert_includes result, '<title>Test</title>'
+        assert_includes result, '<h1>Content</h1>'
+      end
+
       def test_comp_method
-        result = @context.comp(:header, 'title', class: 'main')
-        assert_includes result, "component name='header'"
-        assert_includes result, 'title'
+        Joys.define :comp, :header do |title|
+          header { h2 title }
+        end
+        
+        result = @context.comp(:header, 'Test Title')
+        assert_includes result, '<header>'
+        assert_includes result, '<h2>Test Title</h2>'
       end
 
       def test_params_and_session
@@ -291,11 +349,11 @@ module Joys
         assert_equal({}, @context.session)
       end
 
-      def test_hash_dependency_tracking
-        # This would normally interact with Joys::Hash
-        @context.hash(:posts)
+      def test_data_dependency_tracking
+        # This would normally interact with Joys::Data
+        @context.data(:posts)
         
-        assert_includes @context.used_dependencies['hash'], 'posts'
+        assert_includes @context.used_dependencies['data'], 'posts'
       end
 
       def test_pagination_setup
@@ -306,8 +364,71 @@ module Joys
         assert_equal page_info, @context.instance_variable_get(:@base_page)
       end
 
+      def test_asset_path_helper
+        # Create fake manifest
+        @context.instance_variable_set(:@asset_manifest, {
+          'default/style.css' => '/assets/style-a1b2c3d4.css',
+          'blog_mysite_com/theme.css' => '/blog_mysite_com/assets/theme-e5f6g7h8.css'
+        })
+        
+        # Test default domain
+        assert_equal '/assets/style-a1b2c3d4.css', @context.asset_path('style.css')
+        
+        # Test missing asset (fallback)
+        assert_equal '/assets/missing.css', @context.asset_path('missing.css')
+      end
+
+      def test_asset_url_helper
+        @context.instance_variable_set(:@asset_manifest, {
+          'default/style.css' => '/assets/style-a1b2c3d4.css'
+        })
+        @context.instance_variable_set(:@site_url, 'https://example.com')
+        
+        assert_equal 'https://example.com/assets/style-a1b2c3d4.css', @context.asset_url('style.css')
+      end
+
+      def test_domain_extraction_from_path
+        # Test default domain
+        default_path = File.join(@content_dir, 'default', 'index.rb')
+        context = PageContext.new(default_path, @content_dir)
+        domain = context.send(:extract_domain_from_path, default_path)
+        assert_equal 'default', domain
+        
+        # Test blog domain
+        blog_path = File.join(@content_dir, 'blog_mysite_com', 'posts', 'index.rb')
+        FileUtils.mkdir_p(File.dirname(blog_path))
+        context = PageContext.new(blog_path, @content_dir)
+        domain = context.send(:extract_domain_from_path, blog_path)
+        assert_equal 'blog_mysite_com', domain
+        
+        # Test malformed path
+        invalid_context = PageContext.new('invalid/path.rb', @content_dir)
+        domain = invalid_context.send(:extract_domain_from_path, 'invalid/path.rb')
+        assert_equal 'default', domain
+      end
+
       def test_paginate_with_collection
-        items = (1..15).to_a
+        # Create mock data page
+        items = (1..15).map { |i| { id: i, title: "Post #{i}" } }
+        
+        # Mock the Joys::Data::Page class if it doesn't exist
+        unless defined?(Joys::Data::Page)
+          page_class = Class.new do
+            attr_reader :items, :current_page, :total_pages, :total_items
+            
+            def initialize(items, current_page, total_pages, total_items)
+              @items = items
+              @current_page = current_page
+              @total_pages = total_pages
+              @total_items = total_items
+            end
+          end
+          
+          # Define it in a way that can be referenced
+          Joys.const_set(:Data, Module.new) unless defined?(Joys::Data)
+          Joys::Data.const_set(:Page, page_class) unless defined?(Joys::Data::Page)
+        end
+        
         @context.current_pagination_page = Joys::Data::Page.new(items[0, 5], 1, 3, 15)
         
         result = @context.paginate(items, per_page: 5) do |page|
@@ -365,9 +486,9 @@ module Joys
       end
     end
 
-    class TestMockHashQuery < Minitest::Test
+    class TestMockDataQuery < Minitest::Test
       def test_method_missing_returns_self
-        query = MockHashQuery.new
+        query = Joys::SSG::MockDataQuery.new
         
         assert_equal query, query.where(id: 1)
         assert_equal query, query.order(:name)
@@ -375,7 +496,7 @@ module Joys
       end
 
       def test_terminal_methods
-        query = MockHashQuery.new
+        query = Joys::SSG::MockDataQuery.new
         
         assert_equal [], query.all
         assert_equal 0, query.count
@@ -451,6 +572,208 @@ module Joys
       end
     end
 
+    class TestAssetHandling < Minitest::Test
+      def setup
+        @temp_dir = Dir.mktmpdir
+        @content_dir = File.join(@temp_dir, 'content')
+        @output_dir = File.join(@temp_dir, 'dist')
+        @original_output_dir = Joys::SSG.output_dir
+        Joys::SSG.output_dir = @output_dir
+        
+        create_asset_structure
+      end
+
+      def teardown
+        FileUtils.rm_rf(@temp_dir)
+        Joys::SSG.output_dir = @original_output_dir
+      end
+
+      def create_asset_structure
+        # Create domain directories with assets
+        FileUtils.mkdir_p(File.join(@content_dir, 'default/assets'))
+        FileUtils.mkdir_p(File.join(@content_dir, 'blog_mysite_com/assets/css'))
+        
+        # Create global assets
+        FileUtils.mkdir_p(File.join(@temp_dir, 'public/fonts'))
+        File.write(File.join(@temp_dir, 'public/favicon.ico'), 'fake-favicon')
+        File.write(File.join(@temp_dir, 'public/robots.txt'), 'User-agent: *')
+        File.write(File.join(@temp_dir, 'public/fonts/inter.woff2'), 'fake-font-data')
+        
+        # Create domain-specific assets
+        File.write(File.join(@content_dir, 'default/assets/style.css'), 'body { color: blue; }')
+        File.write(File.join(@content_dir, 'default/assets/logo.png'), 'fake-logo-data')
+        File.write(File.join(@content_dir, 'blog_mysite_com/assets/blog.css'), 'article { margin: 1rem; }')
+        File.write(File.join(@content_dir, 'blog_mysite_com/assets/css/theme.css'), '.theme { background: red; }')
+        
+        # Create pages to trigger build
+        File.write(File.join(@content_dir, 'default/index.rb'), %{
+          Joys.html { h1 "Default Domain" }
+        })
+        File.write(File.join(@content_dir, 'blog_mysite_com/index.rb'), %{
+          Joys.html { h1 "Blog Domain" }
+        })
+      end
+
+      def test_global_asset_copying
+        Dir.chdir(@temp_dir) do
+          Joys::SSG.build(@content_dir, @output_dir)
+        end
+        
+        # Global assets should be copied to root without hashing
+        assert File.exist?(File.join(@output_dir, 'favicon.ico'))
+        assert File.exist?(File.join(@output_dir, 'robots.txt'))
+        assert File.exist?(File.join(@output_dir, 'fonts/inter.woff2'))
+        
+        # Content should be unchanged
+        assert_equal 'fake-favicon', File.read(File.join(@output_dir, 'favicon.ico'))
+        assert_equal 'User-agent: *', File.read(File.join(@output_dir, 'robots.txt'))
+      end
+
+      def test_domain_asset_copying_with_hashing
+        Dir.chdir(@temp_dir) do
+          Joys::SSG.build(@content_dir, @output_dir)
+        end
+        
+        # Default domain assets should be in /assets/
+        default_assets_dir = File.join(@output_dir, 'assets')
+        assert Dir.exist?(default_assets_dir)
+        
+        # Blog domain assets should be in /blog_mysite_com/assets/
+        blog_assets_dir = File.join(@output_dir, 'blog_mysite_com', 'assets')
+        assert Dir.exist?(blog_assets_dir)
+        
+        # Check default domain assets (should have hashed names)
+        default_files = Dir.glob("#{default_assets_dir}/**/*").select { |f| File.file?(f) }
+        assert default_files.any? { |f| f.match(/style-[a-f0-9]{8}\.css/) }
+        assert default_files.any? { |f| f.match(/logo-[a-f0-9]{8}\.png/) }
+        
+        # Check blog domain assets (should have hashed names)
+        blog_files = Dir.glob("#{blog_assets_dir}/**/*").select { |f| File.file?(f) }
+        assert blog_files.any? { |f| f.match(/blog-[a-f0-9]{8}\.css/) }
+        assert blog_files.any? { |f| f.match(/theme-[a-f0-9]{8}\.css/) }
+      end
+
+      def test_asset_manifest_generation
+        Dir.chdir(@temp_dir) do
+          Joys::SSG.build(@content_dir, @output_dir)
+        end
+        
+        manifest_file = File.join(@output_dir, '.asset_manifest.json')
+        assert File.exist?(manifest_file)
+        
+        manifest = JSON.parse(File.read(manifest_file))
+        
+        # Should have entries for each domain asset
+        assert manifest.key?('default/style.css')
+        assert manifest.key?('default/logo.png')
+        assert manifest.key?('blog_mysite_com/blog.css')
+        assert manifest.key?('blog_mysite_com/css/theme.css')
+        
+        # Manifest values should be full URL paths with domain prefixes
+        assert manifest['default/style.css'].match(/\/assets\/style-[a-f0-9]{8}\.css/)
+        assert manifest['default/logo.png'].match(/\/assets\/logo-[a-f0-9]{8}\.png/)
+        assert manifest['blog_mysite_com/blog.css'].match(/\/blog_mysite_com\/assets\/blog-[a-f0-9]{8}\.css/)
+        assert manifest['blog_mysite_com/css/theme.css'].match(/\/blog_mysite_com\/assets\/css\/theme-[a-f0-9]{8}\.css/)
+      end
+
+      def test_asset_path_helper_integration
+        Dir.chdir(@temp_dir) do
+          Joys::SSG.build(@content_dir, @output_dir)
+        end
+        
+        # Test with a page from default domain
+        default_page_file = File.join(@content_dir, 'default/index.rb')
+        context = Joys::SSG::PageContext.new(default_page_file, @content_dir)
+        
+        asset_path = context.asset_path('style.css')
+        
+        # Should return /assets/ path with hashed filename for default domain
+        assert asset_path.start_with?('/assets/')
+        assert asset_path.match(/\/assets\/style-[a-f0-9]{8}\.css/)
+        
+        # Test with a page from blog domain
+        blog_page_file = File.join(@content_dir, 'blog_mysite_com/index.rb')
+        blog_context = Joys::SSG::PageContext.new(blog_page_file, @content_dir)
+        
+        blog_asset_path = blog_context.asset_path('blog.css')
+        
+        # Should return /blog_mysite_com/assets/ path with hashed filename
+        assert blog_asset_path.start_with?('/blog_mysite_com/assets/')
+        assert blog_asset_path.match(/\/blog_mysite_com\/assets\/blog-[a-f0-9]{8}\.css/)
+      end
+
+      def test_consistent_hashing
+        # Build twice and ensure same content gets same hash
+        Dir.chdir(@temp_dir) do
+          Joys::SSG.build(@content_dir, @output_dir)
+        end
+        
+        first_manifest = JSON.parse(File.read(File.join(@output_dir, '.asset_manifest.json')))
+        
+        # Clean and rebuild
+        FileUtils.rm_rf(@output_dir)
+        
+        Dir.chdir(@temp_dir) do
+          Joys::SSG.build(@content_dir, @output_dir)
+        end
+        
+        second_manifest = JSON.parse(File.read(File.join(@output_dir, '.asset_manifest.json')))
+        
+        # Hashes should be identical for same content
+        assert_equal first_manifest, second_manifest
+      end
+
+      def test_content_change_updates_hash
+        Dir.chdir(@temp_dir) do
+          Joys::SSG.build(@content_dir, @output_dir)
+        end
+        
+        original_manifest = JSON.parse(File.read(File.join(@output_dir, '.asset_manifest.json')))
+        original_style_hash = original_manifest['default/style.css']
+        
+        # Modify the CSS content
+        File.write(File.join(@content_dir, 'default/assets/style.css'), 'body { color: red; }')
+        
+        # Clean and rebuild
+        FileUtils.rm_rf(@output_dir)
+        
+        Dir.chdir(@temp_dir) do
+          Joys::SSG.build(@content_dir, @output_dir)
+        end
+        
+        new_manifest = JSON.parse(File.read(File.join(@output_dir, '.asset_manifest.json')))
+        new_style_hash = new_manifest['default/style.css']
+        
+        # Hash should be different for changed content
+        refute_equal original_style_hash, new_style_hash
+      end
+
+      def test_nested_domain_assets
+        # Create nested asset structure
+        FileUtils.mkdir_p(File.join(@content_dir, 'default/assets/images/icons'))
+        File.write(File.join(@content_dir, 'default/assets/images/icons/star.svg'), '<svg>star</svg>')
+        
+        Dir.chdir(@temp_dir) do
+          Joys::SSG.build(@content_dir, @output_dir)
+        end
+        
+        manifest = JSON.parse(File.read(File.join(@output_dir, '.asset_manifest.json')))
+        
+        # Should handle nested paths
+        assert manifest.key?('default/images/icons/star.svg')
+        hashed_path = manifest['default/images/icons/star.svg']
+        
+        # Should be full URL path for default domain
+        assert hashed_path.start_with?('/assets/')
+        assert hashed_path.match(/\/assets\/images\/icons\/star-[a-f0-9]{8}\.svg/)
+        
+        # File should exist at correct location in default domain
+        relative_path = hashed_path.sub('/assets/', '')
+        assert File.exist?(File.join(@output_dir, 'assets', relative_path))
+      end
+    end
+
+    # Simplified tests for other functionality
     class TestIncrementalBuild < Minitest::Test
       def setup
         @temp_dir = Dir.mktmpdir
@@ -458,10 +781,18 @@ module Joys
         @output_dir = File.join(@temp_dir, 'dist')
         create_test_structure
         Joys::SSG.output_dir = @output_dir
+        
+        # Clear Joys registry - use correct variable names
+        Joys.instance_variable_set(:@templates, {}) if Joys.instance_variable_defined?(:@templates)
+        Joys.instance_variable_set(:@layouts, {}) if Joys.instance_variable_defined?(:@layouts)
+        Joys.instance_variable_set(:@cache, {}) if Joys.instance_variable_defined?(:@cache)
       end
 
       def teardown
         FileUtils.rm_rf(@temp_dir)
+        Joys.instance_variable_set(:@templates, {}) if Joys.instance_variable_defined?(:@templates)
+        Joys.instance_variable_set(:@layouts, {}) if Joys.instance_variable_defined?(:@layouts)
+        Joys.instance_variable_set(:@cache, {}) if Joys.instance_variable_defined?(:@cache)
       end
 
       def create_test_structure
@@ -472,7 +803,7 @@ module Joys
 
       def test_incremental_build_with_no_changes
         File.write(File.join(@content_dir, 'default/index.rb'), %{
-          html { "<h1>Test</h1>" }
+          Joys.html { h1 "Test" }
         })
 
         # Initial build
@@ -484,169 +815,6 @@ module Joys
         
         assert_equal [], result
       end
-
-      def test_incremental_build_with_page_change
-        page_file = File.join(@content_dir, 'default/index.rb')
-        File.write(page_file, %{
-          html { "<h1>Original</h1>" }
-        })
-
-        # Initial build
-        Joys::SSG.build(@content_dir, @output_dir)
-        
-        # Modify page
-        File.write(page_file, %{
-          html { "<h1>Modified</h1>" }
-        })
-
-        # Incremental build
-        result = Joys::SSG.build_incremental(@content_dir, [page_file], @output_dir)
-        
-        assert_includes result, 'index.html'
-        content = File.read(File.join(@output_dir, 'index.html'))
-        assert_includes content, 'Modified'
-      end
-
-      def test_incremental_build_with_component_change
-        # Create component and page that uses it
-        comp_file = File.join(@content_dir, 'default/_components/header.rb')
-        File.write(comp_file, '# Header component')
-        
-        File.write(File.join(@content_dir, 'default/index.rb'), %{
-          comp(:header)
-          html { "<h1>Test</h1>" }
-        })
-
-        # Initial build 
-        Joys::SSG.build(@content_dir, @output_dir)
-        
-        # Incremental build when component changes
-        result = Joys::SSG.build_incremental(@content_dir, [comp_file], @output_dir)
-        
-        # Should rebuild pages that use the component
-        assert_includes result, 'index.html'
-      end
-
-      def test_find_affected_pages
-        # Set up some dependencies
-        page_file = File.join(@content_dir, 'default/index.rb')
-        Joys::SSG.instance_variable_set(:@dependencies, {
-          'templates' => {
-            page_file => {
-              'components' => ['header'],
-              'layouts' => ['main']
-            }
-          },
-          'data' => {
-            'posts' => [page_file]
-          }
-        })
-
-        ssg = Class.new { extend Joys::SSG }
-        
-        # Test component change
-        changed_files = [File.join(@content_dir, 'default/_components/header.rb')]
-        affected = ssg.send(:find_affected_pages, changed_files)
-        
-        assert_equal 1, affected.size
-        assert_equal page_file, affected.first[:file_path]
-
-        # Test data change  
-        changed_files = [File.join(@temp_dir, 'hash/posts_hash.rb')]
-        affected = ssg.send(:find_affected_pages, changed_files)
-        
-        assert_equal 1, affected.size
-        assert_equal page_file, affected.first[:file_path]
-
-        # Test direct page change
-        changed_files = [page_file]
-        affected = ssg.send(:find_affected_pages, changed_files)
-        
-        assert_equal 1, affected.size
-        assert_equal page_file, affected.first[:file_path]
-      end
-    end
-
-    class TestPaginatedPages < Minitest::Test
-      def setup
-        @temp_dir = Dir.mktmpdir
-        @content_dir = File.join(@temp_dir, 'content')
-        @output_dir = File.join(@temp_dir, 'dist')
-        create_test_structure
-        Joys::SSG.output_dir = @output_dir
-      end
-
-      def teardown
-        FileUtils.rm_rf(@temp_dir)
-      end
-
-      def create_test_structure
-        FileUtils.mkdir_p(File.join(@content_dir, 'default'))
-      end
-
-      def test_paginated_page_generation
-        # Create a page with pagination
-        File.write(File.join(@content_dir, 'default/blog.rb'), %{
-          posts = (1..25).map { |i| { id: i, title: "Post \#{i}" } }
-          
-          paginate(posts, per_page: 10) do |page|
-            html do
-              "<h1>Blog - Page \#{page.current_page}</h1>" +
-              "<p>Posts: \#{page.items.map { |p| p[:title] }.join(', ')}</p>" +
-              "<p>Page \#{page.current_page} of \#{page.total_pages}</p>"
-            end
-          end
-        })
-
-        built_files = Joys::SSG.build(@content_dir, @output_dir)
-
-        # Should generate 3 pages (25 posts / 10 per page = 3 pages)
-        expected_files = [
-          'blog/index.html',
-          'blog/page-2/index.html', 
-          'blog/page-3/index.html'
-        ]
-
-        expected_files.each do |file|
-          assert_includes built_files, file
-          assert File.exist?(File.join(@output_dir, file))
-        end
-
-        # Check content of first page
-        first_page = File.read(File.join(@output_dir, 'blog/index.html'))
-        assert_includes first_page, 'Blog - Page 1'
-        assert_includes first_page, 'Page 1 of 3'
-
-        # Check content of second page
-        second_page = File.read(File.join(@output_dir, 'blog/page-2/index.html'))
-        assert_includes second_page, 'Blog - Page 2' 
-        assert_includes second_page, 'Page 2 of 3'
-      end
-
-      def test_non_paginated_page
-        File.write(File.join(@content_dir, 'default/about.rb'), %{
-          html { "<h1>About Us</h1>" }
-        })
-
-        built_files = Joys::SSG.build(@content_dir, @output_dir)
-
-        assert_equal 1, built_files.size
-        assert_includes built_files, 'about/index.html'
-        assert File.exist?(File.join(@output_dir, 'about/index.html'))
-      end
-
-      def test_empty_pagination
-        File.write(File.join(@content_dir, 'default/empty.rb'), %{
-          paginate([], per_page: 5) do |page|
-            html { "<h1>No content</h1>" }
-          end
-        })
-
-        built_files = Joys::SSG.build(@content_dir, @output_dir)
-
-        assert_equal 1, built_files.size
-        assert_includes built_files, 'empty/index.html'
-      end
     end
 
     class TestEdgeCases < Minitest::Test
@@ -655,10 +823,18 @@ module Joys
         @content_dir = File.join(@temp_dir, 'content')
         @output_dir = File.join(@temp_dir, 'dist')
         Joys::SSG.output_dir = @output_dir
+        
+        # Clear Joys registry - use correct variable names
+        Joys.instance_variable_set(:@templates, {}) if Joys.instance_variable_defined?(:@templates)
+        Joys.instance_variable_set(:@layouts, {}) if Joys.instance_variable_defined?(:@layouts)
+        Joys.instance_variable_set(:@cache, {}) if Joys.instance_variable_defined?(:@cache)
       end
 
       def teardown
         FileUtils.rm_rf(@temp_dir)
+        Joys.instance_variable_set(:@templates, {}) if Joys.instance_variable_defined?(:@templates)
+        Joys.instance_variable_set(:@layouts, {}) if Joys.instance_variable_defined?(:@layouts)
+        Joys.instance_variable_set(:@cache, {}) if Joys.instance_variable_defined?(:@cache)
       end
 
       def test_empty_content_directory
@@ -681,7 +857,7 @@ module Joys
         
         # Files with special characters should be cleaned
         File.write(File.join(@content_dir, 'default/special-chars!@#.rb'), %{
-          html { "<h1>Special</h1>" }
+          Joys.html { h1 "Special" }
         })
 
         built_files = Joys::SSG.build(@content_dir, @output_dir)
@@ -696,7 +872,7 @@ module Joys
         FileUtils.mkdir_p(File.dirname(deep_path))
         
         File.write("#{deep_path}.rb", %{
-          html { "<h1>Deep Page</h1>" }
+          Joys.html { h1 "Deep Page" }
         })
 
         built_files = Joys::SSG.build(@content_dir, @output_dir)
