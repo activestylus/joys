@@ -1,3 +1,5 @@
+![joys](https://github.com/user-attachments/assets/ec594256-b1ee-4ec7-a876-491abcfa1d66)
+
 # Joys - HTML Templates at the Speed of Light
 
 **Write HTML like Ruby, render it at the speed of C.**
