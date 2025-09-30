@@ -1,5 +1,4 @@
 # lib/joys/tags.rb
-require_relative "hugdown"
 module Joys
   module Tags
     VOID_TAGS = %w[area base br col embed hr img input link meta param source track wbr].freeze

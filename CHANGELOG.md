@@ -20,3 +20,8 @@
 - Added Static Site Generator
 - Added Static Data Layer
 - Added CLI Utility
+
+## [0.1.4] - 2025-09-30
+
+- Fixed buggy dependency in tags.rb
+- No more breaking change
