@@ -25,3 +25,7 @@
 
 - Fixed buggy dependency in tags.rb
 - No more breaking change
+
+## [0.1.5] - 2025-09-30
+
+- Improved Rails integration and helper availability

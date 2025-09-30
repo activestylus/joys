@@ -63,13 +63,17 @@ module Joys
         }
       end
       module ControllerMethods
-        def render_joy(path,**locals)
-          context=Joys.adapter.controller_context(self)
-          context.each{|k,v|Thread.current[k]=v}
-          result=Joys.render_joy(path,**locals)
-          render html:result.html_safe,layout:false
-        ensure
-          context&.keys&.each{|k|Thread.current[k]=nil}
+        def render_joy(path, **locals)
+          Joys.reload! if Config.dev?
+          file = File.join(Config.pages, "#{path}.rb")
+          raise "Template not found: #{file}" unless File.exist?(file)
+          
+          renderer = Object.new
+          renderer.extend(Render::Helpers)
+          locals.each { |k, v| renderer.instance_variable_set(:"@#{k}", v) }
+          
+          result = renderer.instance_eval(File.read(file), file)
+          result.is_a?(String) ? result.freeze : ""
         end
       end
     end
@@ -89,7 +93,7 @@ module Joys
   class << self
     attr_accessor :adapter,:css_registry
     def render_joy(path,**locals)
-      reload! if Config.dev?
+      Joys.reload! if Config.dev?
       file=File.join(Config.pages,"#{path}.rb")
       raise "Template not found: #{file}" unless File.exist?(file)
       locals.each{|k,v|eval("@#{k}=v",binding)}
@@ -125,7 +129,6 @@ module Joys
       end
       @adapter&.integrate!
     end
-    private
     def reload!;clear_cache!;@css_registry={};preload!;end
     def load_dir(dir);Dir.exist?(dir)&&Dir.glob("#{dir}/**/*.rb").each{|f|load f};end
   end
