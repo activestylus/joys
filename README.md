@@ -288,110 +288,6 @@ Joys.define(:comp, :pricing_card) do |plan|
   }
 end
 ```
----
-## A Word on Performance
-
-Using simple components and views (only 3 layers of nesting) we can see how Joy stacks up:
-
-### Simple Templates (385 chars)
-
-#### ❄️ COLD RENDER (new object per call)
-|      | user   | system  | total | real.  |
-|------|--------|--------|--------|--------|
-|Joys: |0.060535|0.000200|0.060735|0.060736|
-|Slim: |0.048344|0.000183|0.048527|0.048530|
-|ERB:  |0.301811|0.000808|0.302619|0.302625|
-|Phlex:|0.069636|0.000470|0.070106|0.071157|
-
-#### 🔥 HOT RENDER (cached objects)
-|      | user   | system  | total  | real   |
-|------|--------|---------|--------|--------|
-|Joys: |0.065255| 0.000257|0.065512|0.065512|
-|Slim: |0.049323| 0.000295|0.049618|0.049695|
-|ERB:  |0.309757| 0.001167|0.310924|0.310929|
-|Phlex:|0.069663| 0.000141|0.069804|0.069805|
-
-#### 💾 MEMORY USAGE
-Joys memory: 532356 bytes
-Slim memory: 40503436 bytes
-Phlex memory: 8000 bytes
-ERB memory: 1669256 bytes
-
-At smaller scales performance is on par with Phlex, which has excellent speed and superior
-
-### Complex Templates (8,000+ chars)
-
-As template complexity grows, Joys starts to really show off its optimizations. This benchmark tests a full dashboard page with 5 components and 2 loops yields:
-
-* Data parsing
-* Layouts
-* Multiple Content Slots
-* Multiple Components
-* Several Iterations
-* Conditions
-
-### ❄️ COLD RENDER (new object per call)
-
-This is the bare bones benchmark, no "cheating" allowed.
-
-|      | user   | system | total  | real   |
-|------|--------|--------|--------|--------|
-| Joys |0.051715|0.000364|0.052079|0.052080|
-| ERB  |0.520495|0.003696|0.524191|0.524187|
-| Slim |6.001650|0.019418|6.021068|6.021013|
-| Phlex|0.169567|0.000373|0.169940|0.169938|
-
-Note: Joys achieves its 'cold render' speed by eliminating object overhead and using simple string operations with smart memory management.
-
-### 🔥 HOT RENDER (cached objects)
-
-|      | user    | system | total   | real   |
-|------|---------|--------|---------|--------|
-|JOYS: | 0.000463|0.000010| 0.000473|0.000473|
-|SLIM: | 0.045881|0.000358| 0.046239|0.046243|
-|PHLEX:| 0.167631|0.000760| 0.168391|0.168661|
-|ERB:  | 0.394509|0.004084| 0.398593|0.398614|
-
-Note: Joys achieves its 'hot render' speed by compiling a template's structure into a highly optimized render function the first time it's called. Subsequent calls with the same component structure reuse this function, bypassing compilation and object allocation, and only interpolating the dynamic data.
-
-
-### 💾 MEMORY USAGE
-
-Joys memory: 7587400 bytes
-Slim memory: 217778600 bytes
-Phlex memory: 9956000 bytes
-ERB memory: 7264240 bytes
-
-Even without caching, Joys is rendering at around 50 milliseconds.
-
-The real performance comes after caching at half a millisecond.
-
-That's not just fast, its _ludicrous speed_ 🚀 All thanks to Joys's one-time compilation and caching of the template structure.
-
-But don't take our word for it:
-
-```
-gem install erb slim phlex joys
-
-# Simple benchmark
-ruby text/bench/simple.rb
-
-# Complex benchmark
-ruby text/bench/deep.rb
-```
-
-Note: If you have any additions, critiques or input on these benchmarks please submit a pull request.
-
-### Performance Philosophy
-
-Joys attains its incredible speed through:
-
-1. **Precompiled layouts** - Templates compile once, render many
-2. **Direct string building** - No intermediate AST or object allocation
-3. **Smart caching** - Components cache by arguments automatically
-4. **Zero abstraction penalty** - It's just method calls and string concatenation
-
-All achieved without C or Rust. Just plain old Ruby, with a core of under 500 lines of code. 
 
 ---
 
@@ -1116,6 +1012,113 @@ Joys::Config.markup_parser = ->(content) {
 ```
 
 The `?` suffix provides a clean, consistent way to integrate markup processing into your Joys templates while maintaining the framework's exceptional performance characteristics.
+
+---
+
+---
+## A Word on Performance
+
+Using simple components and views (only 3 layers of nesting) we can see how Joy stacks up:
+
+### Simple Templates (385 chars)
+
+#### ❄️ COLD RENDER (new object per call)
+|      | user   | system  | total | real.  |
+|------|--------|--------|--------|--------|
+|Joys: |0.060535|0.000200|0.060735|0.060736|
+|Slim: |0.048344|0.000183|0.048527|0.048530|
+|ERB:  |0.301811|0.000808|0.302619|0.302625|
+|Phlex:|0.069636|0.000470|0.070106|0.071157|
+
+#### 🔥 HOT RENDER (cached objects)
+|      | user   | system  | total  | real   |
+|------|--------|---------|--------|--------|
+|Joys: |0.065255| 0.000257|0.065512|0.065512|
+|Slim: |0.049323| 0.000295|0.049618|0.049695|
+|ERB:  |0.309757| 0.001167|0.310924|0.310929|
+|Phlex:|0.069663| 0.000141|0.069804|0.069805|
+
+#### 💾 MEMORY USAGE
+Joys memory: 532356 bytes
+Slim memory: 40503436 bytes
+Phlex memory: 8000 bytes
+ERB memory: 1669256 bytes
+
+At smaller scales performance is on par with Phlex, which has excellent speed and superior
+
+### Complex Templates (8,000+ chars)
+
+As template complexity grows, Joys starts to really show off its optimizations. This benchmark tests a full dashboard page with 5 components and 2 loops yields:
+
+* Data parsing
+* Layouts
+* Multiple Content Slots
+* Multiple Components
+* Several Iterations
+* Conditions
+
+### ❄️ COLD RENDER (new object per call)
+
+This is the bare bones benchmark, no "cheating" allowed.
+
+|      | user   | system | total  | real   |
+|------|--------|--------|--------|--------|
+| Joys |0.051715|0.000364|0.052079|0.052080|
+| ERB  |0.520495|0.003696|0.524191|0.524187|
+| Slim |6.001650|0.019418|6.021068|6.021013|
+| Phlex|0.169567|0.000373|0.169940|0.169938|
+
+Note: Joys achieves its 'cold render' speed by eliminating object overhead and using simple string operations with smart memory management.
+
+### 🔥 HOT RENDER (cached objects)
+
+|      | user    | system | total   | real   |
+|------|---------|--------|---------|--------|
+|JOYS: | 0.000463|0.000010| 0.000473|0.000473|
+|SLIM: | 0.045881|0.000358| 0.046239|0.046243|
+|PHLEX:| 0.167631|0.000760| 0.168391|0.168661|
+|ERB:  | 0.394509|0.004084| 0.398593|0.398614|
+
+Note: Joys achieves its 'hot render' speed by compiling a template's structure into a highly optimized render function the first time it's called. Subsequent calls with the same component structure reuse this function, bypassing compilation and object allocation, and only interpolating the dynamic data.
+
+
+### 💾 MEMORY USAGE
+
+Joys memory: 7587400 bytes
+Slim memory: 217778600 bytes
+Phlex memory: 9956000 bytes
+ERB memory: 7264240 bytes
+
+Even without caching, Joys is rendering at around 50 milliseconds.
+
+The real performance comes after caching at half a millisecond.
+
+That's not just fast, its _ludicrous speed_ 🚀 All thanks to Joys's one-time compilation and caching of the template structure.
+
+But don't take our word for it:
+
+```
+gem install erb slim phlex joys
+
+# Simple benchmark
+ruby text/bench/simple.rb
+
+# Complex benchmark
+ruby text/bench/deep.rb
+```
+
+Note: If you have any additions, critiques or input on these benchmarks please submit a pull request.
+
+### Performance Philosophy
+
+Joys attains its incredible speed through:
+
+1. **Precompiled layouts** - Templates compile once, render many
+2. **Direct string building** - No intermediate AST or object allocation
+3. **Smart caching** - Components cache by arguments automatically
+4. **Zero abstraction penalty** - It's just method calls and string concatenation
+
+All achieved without C or Rust. Just plain old Ruby, with a core of under 500 lines of code. 
 
 ---
 

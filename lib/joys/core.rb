@@ -2,6 +2,7 @@
 # lib/joys/core.rb
 module Joys
   @css_path = "public/css";@cache={};@templates={};@compiled_styles={};@consolidated_cache={};@current_component = nil;@layouts={}
+  
   class << self
     attr_reader :cache, :templates, :compiled_styles, :consolidated_cache, :layouts
     attr_accessor :current_component, :current_page, :css_path,:adapter,:css_registry
